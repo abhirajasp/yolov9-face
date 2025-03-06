@@ -3,6 +3,7 @@ import math
 import numpy as np
 import torch
 import torch.nn as nn
+import torch._utils
 
 from utils.downloads import attempt_download
 
@@ -72,6 +73,22 @@ def attempt_load(weights, device=None, inplace=True, fuse=True):
 
     model = Ensemble()
     for w in weights if isinstance(weights, list) else [weights]:
+        try:
+            torch._utils._rebuild_parameter_v2
+        except AttributeError:
+            def _rebuild_parameter_v2(data, requires_grad, backward_hooks, state):
+                param = torch.nn.Parameter(data, requires_grad)
+                # NB: This line exists only for backwards compatibility; the
+                # general expectation is that backward_hooks is an empty
+                # OrderedDict.  See Note [Don't serialize hooks]
+                param._backward_hooks = backward_hooks
+
+                # Restore state on Parameter like python attr.
+                # param = _set_obj_state(param, state)
+                return param
+
+            torch._utils._rebuild_parameter_v2 = _rebuild_parameter_v2
+        
         ckpt = torch.load(attempt_download(w), map_location='cpu')  # load
         ckpt = (ckpt.get('ema') or ckpt['model']).to(device).float()  # FP32 model
 
